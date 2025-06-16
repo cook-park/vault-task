@@ -4,3 +4,10 @@
 
   roles:
     - master_install
+
+- name: rancher worker install
+  hosts: worker
+  become: true
+
+  roles:
+    - worker_install

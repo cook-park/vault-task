@@ -1,0 +1,50 @@
+---
+# tasks file for ansible/roles/worker_install
+- name: get master ip
+  ansible.builtin.set_fact:
+    master_ip: "{{ hostvars['master']['ansible_host'] }}"
+
+- name: Read RKE2 cluster token from shared directory
+  ansible.builtin.slurp:
+    src: /vagrant/rke2_token.txt # 원격 호스트의 경로 -> 이 경우에는 공유 폴더에 있는 토큰 파일 읽음 
+  register: rke2_token_file_content
+
+- name: Set RKE2 cluster token variable
+  ansible.builtin.set_fact:
+    rke2_cluster_token: "{{ rke2_token_file_content.content | b64decode }}"
+
+
+- name: Download RKE2 installation script
+  ansible.builtin.get_url:
+    url: https://get.rke2.io
+    dest: /tmp/install_rke2.sh
+    mode: '0755'
+    validate_certs: false # HTTPS 인증서 검증을 건너뛰려면 true로 변경
+  register: rke2_script_download
+
+
+- name: Execute RKE2 installation script as agent
+  ansible.builtin.shell: |
+    INSTALL_RKE2_TYPE="agent" \
+    K3S_URL="https://{{ master_ip }}:9345" \
+    K3S_TOKEN="{{ rke2_cluster_token }}" \
+    sh -
+  args:
+    creates: /usr/local/bin/rke2-agent
+
+- name: Ensure rke2-agent service is enabled and started
+  ansible.builtin.systemd:
+    name: rke2-agent.service
+    enabled: true
+    state: started
+    daemon_reload: true # 변경사항이 있을 경우 데몬 리로드
+
+- name: Check rke2-agent service status (informational)
+  ansible.builtin.systemd:
+    name: rke2-agent.service
+  register: rke2_agent_status
+  changed_when: false # 이 태스크는 상태를 확인만 하므로 항상 'ok'로 표시됩니다.
+
+- name: Display rke2-agent service status
+  ansible.builtin.debug:
+    msg: "RKE2 Agent Service Status: {{ rke2_agent_status.status.ActiveState }}"

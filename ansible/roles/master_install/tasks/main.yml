@@ -33,7 +33,7 @@
 
 - name: Execute RKE2 installation script as server
   ansible.builtin.shell: |
-    INSTALL_RKE2_TYPE="server" /tmp/install_rke2.sh
+    INSTALL_RKE2_TYPE="server" /tmp/get_rke2.sh
   args:
     creates: /usr/local/bin/rke2 # rke2 바이너리가 존재하면 실행하지 않음
   when: rke2_script_download.changed
@@ -43,7 +43,6 @@
     name: rke2-server.service
     enabled: yes
     state: started
-
 
 - name: Download K9s .deb package
   ansible.builtin.get_url:
