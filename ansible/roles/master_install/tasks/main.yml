@@ -1,0 +1,127 @@
+- name: Disable swap permanently
+  ansible.builtin.mount:
+    name: swap
+    fstype: swap
+    state: absent # 멱등성: swapoff -a 효과 + fstab에서 제거
+
+- name: Remove swap from fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].* swap .*)$'
+    replace: '# \1'
+
+# - name: Upgrade packages
+#   apt:
+#     upgrade: dist
+#     update_cache: yes
+
+- name: Stop and disable UFW
+  service:
+    name: ufw
+    state: stopped
+    enabled: no
+
+- name: Flush iptables
+  command: iptables -F
+
+- name: Install RKE2 server
+  ansible.builtin.get_url:
+    url: https://get.rke2.io
+    dest: /tmp/get_rke2.sh
+    mode: '0755'
+  register: rke2_script_download
+
+- name: Execute RKE2 installation script as server
+  ansible.builtin.shell: |
+    INSTALL_RKE2_TYPE="server" /tmp/install_rke2.sh
+  args:
+    creates: /usr/local/bin/rke2 # rke2 바이너리가 존재하면 실행하지 않음
+  when: rke2_script_download.changed
+
+- name: Enable and start rke2-server service
+  systemd:
+    name: rke2-server.service
+    enabled: yes
+    state: started
+
+
+- name: Download K9s .deb package
+  ansible.builtin.get_url:
+    url: https://github.com/derailed/k9s/releases/download/v0.50.6/k9s_linux_amd64.deb
+    dest: /tmp/k9s_linux_amd64.deb # 파일을 /tmp 디렉토리에 다운로드
+    mode: '0644' # 다운로드된 파일의 권한 설정
+  register: k9s_deb_download
+
+- name: Install K9s .deb package
+  ansible.builtin.apt:
+    deb: /tmp/k9s_linux_amd64.deb # 다운로드한 .deb 파일 경로 지정
+    state: present # 패키지가 설치되어 있음을 보장 (멱등성)
+  when: k9s_deb_download.changed
+
+- name: Read RKE2 token
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/rke2/server/token
+  register: rke2_token_slurp
+
+- name: Copy RKE2 token to shared location
+  ansible.builtin.copy:
+    content: "{{ rke2_token_slurp.content | b64decode }}" # slurp는 base64 인코딩된 콘텐츠를 반환
+    dest: /vagrant/rke2_token.txt
+    mode: '0644' # 공유 디렉토리에 저장
+
+# owner와 group은 추후 수정 필요
+- name: Create .kube directory for vagrant user
+  ansible.builtin.file:
+    path: /home/vagrant/.kube
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: '0755'
+
+- name: Copy kubeconfig
+  ansible.builtin.copy:
+    src: /etc/rancher/rke2/rke2.yaml
+    dest: /home/vagrant/.kube/config
+    remote_src: yes
+    owner: vagrant
+    group: vagrant
+    mode: 0600
+
+- name: Add kubectl to PATH
+  lineinfile:
+    path: /home/vagrant/.bashrc
+    line: 'export PATH=/usr/local/bin:/var/lib/rancher/rke2/bin:$PATH'
+    state: present
+
+- name: Add kubectl alias
+  lineinfile:
+    path: /home/vagrant/.bashrc
+    line: 'alias k=kubectl'
+    state: present
+
+- name: Download helm install script
+  get_url:
+    url: https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+    dest: /tmp/get_helm.sh
+    mode: '0700'
+  register: helm_script_download
+
+- name: Install helm
+  ansible.builtin.command: /tmp/get_helm.sh
+  args:
+    creates: /usr/local/bin/helm # helm 바이너리가 존재하면 실행하지 않음
+  when: helm_script_download.changed
+
+#  ansible-galaxy collection install community.kubernetes 
+- name: Add Jetstack Helm repository
+  community.kubernetes.helm_repository: # 전용 모듈 사용
+    name: jetstack
+    repo_url: https://charts.jetstack.io
+    state: present
+
+# python interpretor 문제가 발생한다면 vm에서 pip3 install kubernetes를 해줘야함
+- name: Apply cert-manager CRDs and manifest
+  community.kubernetes.k8s: # k8s 모듈 사용
+    state: present
+    src: https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+    kubeconfig: /home/vagrant/.kube/config

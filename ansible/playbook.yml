@@ -1,0 +1,6 @@
+- name: rancher master install
+  hosts: master
+  become: true
+
+  roles:
+    - master_install
