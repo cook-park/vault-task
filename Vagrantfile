@@ -1,41 +1,30 @@
-Vagrant.configure("2") do |config|
-  master_private_ip = "192.168.56.101"
-  worker_private_ip = "192.168.56.102"
-  config.vm.define "master" do |master|
-    master.vm.box = "ubuntu/focal64"
-    master.vm.hostname = "master"
-    master.vm.network "private_network", ip: master_private_ip
-
-    master.vm.provider "virtualbox" do |vb|
-      vb.memory = "4096"
-      vb.cpus = "4"
-    end
-
-    master.vm.provision "shell", path: "ssh_password_yes.sh"
-    # master.vm.provision "shell", path: "setup_gateway.sh"
-
-    # master.vm.provision "shell", path: "setup.sh"
-    # master.vm.provision "shell", path: "install_rke2.sh"
-
-    # master.vm.provision "shell", path: "kubectl_config.sh"
-    # master.vm.provision "shell", path: "install_k9s.sh"
-    # master.vm.provision "shell", path: "install_helm.sh"
-    # master.vm.provision "shell", path: "install_cert_manager.sh"
-    # master.vm.provision "shell", path: "rancher_start.sh", args: [master_private_ip]
+def set_vm_resources(vm, mem, cpu)
+  vm.vm.provider "virtualbox" do |vb|
+    vb.memory = mem
+    vb.cpus = cpu
   end
+end
 
-  config.vm.define "worker" do |worker|
-    worker.vm.box = "ubuntu/focal64"
-    worker.vm.hostname = "worker"
-    worker.vm.network "private_network", ip: worker_private_ip
+def common_vm_setup(config, name, ip, mem, cpu)
+  config.vm.define name do |vm|
+    vm.vm.box = "ubuntu/focal64"
+    vm.vm.hostname = name
+    vm.vm.network "private_network", ip: ip
 
-    worker.vm.provider "virtualbox" do |vb|
-      vb.memory = "4096"
-      vb.cpus = "4"
-    end
+    set_vm_resources(vm, mem, cpu)
 
-    worker.vm.provision "shell", path: "ssh_password_yes.sh"
-    # worker.vm.provision "shell", path: "setup_gateway.sh"
-    # worker.vm.provision "shell", path: "install_rke2_worker.sh", args: [master_private_ip]
+    vm.vm.provision "shell", path: "ssh_password_yes.sh"
+  end
+end
+
+Vagrant.configure("2") do |config|
+  options = {
+    "master" => { ip: "192.168.56.101", mem: 2048, cpu: 2 },
+    "worker" => { ip: "192.168.56.102", mem: 2048, cpu: 2 },
+    "api"    => { ip: "192.168.56.105", mem: 1024, cpu: 1 }
+  }
+  # name: options의 키, opt: options의 값
+  options.each do |name, opt|
+    common_vm_setup(config, name, opt[:ip], opt[:mem], opt[:cpu])
   end
 end
